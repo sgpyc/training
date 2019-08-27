@@ -27,7 +27,8 @@ import urllib
 
 import six
 import tensorflow as tf
-import urllib.request
+#import urllib.request
+import urllib
 
 from mlperf_compliance import mlperf_log
 
@@ -157,16 +158,16 @@ def download_from_url(path, url):
   found_file = find_file(path, filename, max_depth=0)
   if found_file is None:
     filename = os.path.join(path, filename)
-    tf.logging.info("Downloading from %s to %s." % (url, filename))
+    tf.compat.v1.logging.info("Downloading from %s to %s." % (url, filename))
     inprogress_filepath = filename + ".incomplete"
-    inprogress_filepath, _ = urllib.request.urlretrieve(
+    inprogress_filepath, _ = urllib.urlretrieve(
         url, inprogress_filepath, reporthook=download_report_hook)
     # Print newline to clear the carriage return from the download progress.
     print()
-    tf.gfile.Rename(inprogress_filepath, filename)
+    tf.io.gfile.rename(inprogress_filepath, filename)
     return filename
   else:
-    tf.logging.info("Already downloaded: %s (at %s)." % (url, found_file))
+    tf.compat.v1.logging.info("Already downloaded: %s (at %s)." % (url, found_file))
     return found_file
 
 
@@ -189,14 +190,14 @@ def download_and_extract(path, url, input_filename, target_filename):
   input_file = find_file(path, input_filename)
   target_file = find_file(path, target_filename)
   if input_file and target_file:
-    tf.logging.info("Already downloaded and extracted %s." % url)
+    tf.compat.v1.logging.info("Already downloaded and extracted %s." % url)
     return input_file, target_file
 
   # Download archive file if it doesn't already exist.
   compressed_file = download_from_url(path, url)
 
   # Extract compressed files
-  tf.logging.info("Extracting %s." % compressed_file)
+  tf.compat.v1.logging.info("Extracting %s." % compressed_file)
   with tarfile.open(compressed_file, "r:gz") as corpus_tar:
     corpus_tar.extractall(path)
 
@@ -213,7 +214,7 @@ def download_and_extract(path, url, input_filename, target_filename):
 
 def txt_line_iterator(path):
   """Iterate through lines of file."""
-  with tf.gfile.Open(path) as f:
+  with tf.io.gfile.open(path) as f:
     for line in f:
       yield line.strip()
 
@@ -232,18 +233,18 @@ def compile_files(data_dir, raw_files, tag):
   Returns:
     Full path of compiled input and target files.
   """
-  tf.logging.info("Compiling files with tag %s." % tag)
+  tf.compat.v1.logging.info("Compiling files with tag %s." % tag)
   filename = "%s-%s-%s" % (_PREFIX, _COMPILE_TAG, tag)
   input_compiled_file = os.path.join(data_dir, filename + ".lang1")
   target_compiled_file = os.path.join(data_dir, filename + ".lang2")
 
-  with tf.gfile.Open(input_compiled_file, mode="w") as input_writer:
-    with tf.gfile.Open(target_compiled_file, mode="w") as target_writer:
+  with tf.io.gfile.open(input_compiled_file, mode="w") as input_writer:
+    with tf.io.gfile.open(target_compiled_file, mode="w") as target_writer:
       for i in range(len(raw_files["inputs"])):
         input_file = raw_files["inputs"][i]
         target_file = raw_files["targets"][i]
 
-        tf.logging.info("Reading files %s and %s." % (input_file, target_file))
+        tf.compat.v1.logging.info("Reading files %s and %s." % (input_file, target_file))
         write_file(input_writer, input_file)
         write_file(target_writer, target_file)
   return input_compiled_file, target_compiled_file
@@ -279,10 +280,10 @@ def encode_and_save_files(
                for n in range(total_shards)]
 
   if all_exist(filepaths):
-    tf.logging.info("Files with tag %s already exist." % tag)
+    tf.compat.v1.logging.info("Files with tag %s already exist." % tag)
     return filepaths
 
-  tf.logging.info("Saving files with tag %s." % tag)
+  tf.compat.v1.logging.info("Saving files with tag %s." % tag)
   input_file = raw_files[0]
   target_file = raw_files[1]
 
@@ -293,7 +294,7 @@ def encode_and_save_files(
   for counter, (input_line, target_line) in enumerate(zip(
       txt_line_iterator(input_file), txt_line_iterator(target_file))):
     if counter > 0 and counter % 100000 == 0:
-      tf.logging.info("\tSaving case %d." % counter)
+      tf.compat.v1.logging.info("\tSaving case %d." % counter)
     example = dict_to_example(
         {"inputs": subtokenizer.encode(input_line, add_eos=True),
          "targets": subtokenizer.encode(target_line, add_eos=True)})
@@ -303,7 +304,7 @@ def encode_and_save_files(
     writer.close()
 
   for tmp_name, final_name in zip(tmp_filepaths, filepaths):
-    tf.gfile.Rename(tmp_name, final_name)
+    tf.io.gfile.rename(tmp_name, final_name)
 
   if tag == _TRAIN_TAG:
     mlperf_log.transformer_print(key=mlperf_log.PREPROC_NUM_TRAIN_EXAMPLES,
@@ -312,7 +313,7 @@ def encode_and_save_files(
     mlperf_log.transformer_print(key=mlperf_log.PREPROC_NUM_EVAL_EXAMPLES,
                                  value=counter)
 
-  tf.logging.info("Saved %d Examples", counter)
+  tf.compat.v1.logging.info("Saved %d Examples", counter)
   return filepaths
 
 
@@ -325,18 +326,18 @@ def shard_filename(path, tag, shard_num, total_shards):
 
 def shuffle_records(fname):
   """Shuffle records in a single file."""
-  tf.logging.info("Shuffling records in file %s" % fname)
+  tf.compat.v1.logging.info("Shuffling records in file %s" % fname)
 
   # Rename file prior to shuffling
   tmp_fname = fname + ".unshuffled"
-  tf.gfile.Rename(fname, tmp_fname)
+  tf.io.gfile.rename(fname, tmp_fname)
 
   reader = tf.python_io.tf_record_iterator(tmp_fname)
   records = []
   for record in reader:
     records.append(record)
     if len(records) % 100000 == 0:
-      tf.logging.info("\tRead: %d", len(records))
+      tf.compat.v1.logging.info("\tRead: %d", len(records))
 
   random.shuffle(records)
 
@@ -345,9 +346,9 @@ def shuffle_records(fname):
     for count, record in enumerate(records):
       w.write(record)
       if count > 0 and count % 100000 == 0:
-        tf.logging.info("\tWriting record: %d" % count)
+        tf.compat.v1.logging.info("\tWriting record: %d" % count)
 
-  tf.gfile.Remove(tmp_fname)
+  tf.io.gfile.remove(tmp_fname)
 
 
 def dict_to_example(dictionary):
@@ -361,43 +362,44 @@ def dict_to_example(dictionary):
 def all_exist(filepaths):
   """Returns true if all files in the list exist."""
   for fname in filepaths:
-    if not tf.gfile.Exists(fname):
+    if not tf.io.gfile.exists(fname):
       return False
   return True
 
 
 def make_dir(path):
-  if not tf.gfile.Exists(path):
-    tf.logging.info("Creating directory %s" % path)
-    tf.gfile.MakeDirs(path)
+  if not tf.io.gfile.exists(path):
+    tf.compat.v1.logging.info("Creating directory %s" % path)
+    tf.io.gfile.makedirs(path)
 
 
 def main(unused_argv):
   """Obtain training and evaluation data for the Transformer model."""
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
   make_dir(FLAGS.raw_dir)
   make_dir(FLAGS.data_dir)
 
   # Get paths of download/extracted training and evaluation files.
-  tf.logging.info("Step 1/4: Downloading data from source")
+  tf.compat.v1.logging.info("Step 1/4: Downloading data from source")
   train_files = get_raw_files(FLAGS.raw_dir, _TRAIN_DATA_SOURCES)
   eval_files = get_raw_files(FLAGS.raw_dir, _EVAL_DATA_SOURCES)
 
   # Create subtokenizer based on the training files.
-  tf.logging.info("Step 2/4: Creating subtokenizer and building vocabulary")
+  tf.compat.v1.logging.info("Step 2/4: Creating subtokenizer and building vocabulary")
   train_files_flat = train_files["inputs"] + train_files["targets"]
   vocab_file = os.path.join(FLAGS.data_dir, _VOCAB_FILE)
   subtokenizer = tokenizer.Subtokenizer.init_from_files(
       vocab_file, train_files_flat, _TARGET_VOCAB_SIZE, _TARGET_THRESHOLD,
       min_count=None if FLAGS.search else _TRAIN_DATA_MIN_COUNT)
-
-  tf.logging.info("Step 3/4: Compiling training and evaluation data")
+  
+  """
+  tf.compat.v1.logging.info("Step 3/4: Compiling training and evaluation data")
   compiled_train_files = compile_files(FLAGS.data_dir, train_files, _TRAIN_TAG)
   compiled_eval_files = compile_files(FLAGS.data_dir, eval_files, _EVAL_TAG)
 
   # Tokenize and save data as Examples in the TFRecord format.
-  tf.logging.info("Step 4/4: Preprocessing and saving data")
+  tf.compat.v1.logging.info("Step 4/4: Preprocessing and saving data")
   mlperf_log.transformer_print(key=mlperf_log.PREPROC_TOKENIZE_TRAINING)
   train_tfrecord_files = encode_and_save_files(
       subtokenizer, FLAGS.data_dir, compiled_train_files, _TRAIN_TAG,
@@ -410,7 +412,7 @@ def main(unused_argv):
   mlperf_log.transformer_print(key=mlperf_log.INPUT_ORDER)
   for fname in train_tfrecord_files:
     shuffle_records(fname)
-
+  """
 
 if __name__ == "__main__":
 
