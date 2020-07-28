@@ -73,7 +73,8 @@ The generation of the evaluation set shard should follow the exact command shown
 
 # Running the model
 
-To run this model, use the following command.
+## on NVIDIA Tesla V100-16GB GPUs
+To run this model on GPUs, use the following command.
 
 ```shell
 
@@ -135,3 +136,142 @@ The model has been tested using the following stack:
 - NVIDIA Docker 2.2.2-1 + Docker 19.03.8
 - docker image tensorflow/tensorflow:2.2.0rc0-gpu-py3
 
+## On Google TPU-v3
+
+To run the model on TPUs by Google cloud, follow these steps:
+
+1. create a GCP host instance
+
+```shell
+
+gcloud compute instances create <host name> \
+  --boot-disk-auto-delete \
+  --boot-disk-size 500 \
+  --boot-disk-type pd-ssd \
+  --format json \
+  --image debian-10-tf-2-2-v20200508 \
+  --image-project ml-images \
+  --machine-type n1-highmem-96 \
+  --min-cpu-platform skylake \
+  --network default \
+  --network-tier PREMIUM \
+  --no-restart-on-failure \
+  --project <GCP project> \
+  --quiet \
+  --scopes cloud-platform \
+  --tags perfkitbenchmarker \
+  --zone <GCP zone that the project has TPU-v3 quota in>
+
+```
+
+2. create train TPU instances
+
+```shell
+
+gcloud compute tpus create <host name>_train \
+  --accelerator-type v3-32 \
+  --format json \
+  --network default \
+  --project <the same project as the host> \
+  --quiet \
+  --range <IP range, e.g. 10.196.80.0/29> \
+  --version 2.2 \
+  --zone <the same zone as the host>
+
+```
+
+3. create eval TPU instances
+
+```shell
+
+gcloud compute tpus create <host name>_eval \
+  --accelerator-type v3-8 \
+  --format json \
+  --network default \
+  --project <the same project as the host> \
+  --quiet \
+  --range <IP range, e.g. 10.192.60.0/29> \
+  --version 2.2 \
+  --zone <the same zone as the host>
+
+```
+
+4. Download the model code on the host, and start training by
+
+```shell
+
+python3 run_pretraining.py \
+  --bert_config_file=gs://pkanwar-bert/bs64k_32k_ckpt/bert_config.json \
+  --nodo_eval \
+  --do_train \
+  --eval_batch_size=448 \
+  --init_checkpoint=gs://pkanwar-bert/bs64k_32k_ckpt/model.ckpt-28252 \
+  --input_file=<GCP path that stores the input file>/part-* \
+  --iterations_per_loop=1157 \
+  --lamb_beta_1=0.9 \
+  --lamb_beta_2=0.9999 \
+  --lamb_weight_decay_rate=0.01 \
+  --learning_rate=0.0004 \
+  --log_epsilon=-6 \
+  --tpu_name=<host name>_train \
+  --tpu_zone=<the same zone as the host> \
+  --max_eval_steps=23 \
+  --max_predictions_per_seq=76 \
+  --max_seq_length=512 \
+  --num_tpu_cores=32 \
+  --num_train_steps=8103 \
+  --num_warmup_steps=0 \
+  --optimizer=lamb \
+  --output_dir=<a GCP path to store the output checkpoints> \
+  --save_checkpoints_steps=1157 \
+  --start_warmup_step=0 \
+  --train_batch_size=448 \
+  --use_tpu
+
+```
+
+By default, the training code only keeps the most recent 5 checkpoints.
+
+5. Evaluate the output checkpoints by
+
+```shell
+
+python3 run_pretraining.py \
+  --bert_config_file=gs://pkanwar-bert/bs64k_32k_ckpt/bert_config.json \
+  --do_eval \
+  --nodo_train \
+  --eval_batch_size=16 \
+  --init_checkpoint=gs://pkanwar-bert/bs64k_32k_ckpt/model.ckpt-28252 \
+  --input_file=<GCP path for the input dataset>/part-* \
+  --iterations_per_loop=1157 \
+  --lamb_beta_1=0.9 \
+  --lamb_beta_2=0.9999 \
+  --lamb_weight_decay_rate=0.01 \
+  --learning_rate=0.0004 \
+  --log_epsilon=-6 \
+  --tpu_name=<host name>_eval \
+  --tpu_zone=<the same zone as the host> \
+  --max_eval_steps=5000 \
+  --max_predictions_per_seq=76 \
+  --max_seq_length=512 \
+  --num_tpu_cores=8 \
+  --num_train_steps=8103 \
+  --num_warmup_steps=0 \
+  --optimizer=lamb \
+  --output_dir=<GCP path that stores the output checkpoints> \
+  --save_checkpoints_steps=1157 \
+  --start_warmup_step=0 \
+  --train_batch_size=448 \
+  --use_tpu
+
+```
+
+By default, the evaluation uses the most recent checkpoint; to eval on
+a previous checkpoint, change the first line of the "checkpoint" file
+in the output directory to point to the desired checkpoint.
+
+The model has been tested on TPU with the following software stack:
+- Debian GNU/Linux 4.19.98-1 x86_64
+- GCP image debian-10-tf-2-2-v20200508
+- TF 2.2 on TPU 
+- TF 2.2.0 on host
